@@ -312,25 +312,70 @@ if data is not None and not data.empty:
     
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- DETAYLI TABLO ---
-    with st.expander("📋 Detaylı Tahmin Tablosu", expanded=False):
-        display_df = results_df.copy()
-        display_df['Tarih'] = display_df['Tarih_ts'].apply(
-            lambda dt: f"{turkish_months[dt.month - 1]} {dt.year}"
+    # --- KOMPAKT TABLO ---
+    st.markdown("<div class='section-header'>📊 Aylık Tahmin Detayları</div>", unsafe_allow_html=True)
+    
+    display_df = results_df.copy()
+    display_df['Ay'] = display_df['Tarih_ts'].apply(
+        lambda dt: f"{turkish_months[dt.month - 1]} {dt.year}"
+    )
+    
+    # Kompakt tablo: Sadece önemli sütunlar
+    compact_df = display_df[['Ay', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 
+                             'Son Veriye Göre Kümülatif Enflasyon (%)']].copy()
+    compact_df.columns = ['Ay', 'Tahmin Endeks', 'Aylık %', 'Kümülatif %']
+    
+    # Tabloyu 3 sütuna böl (mobil uyumlu)
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.dataframe(
+            compact_df.iloc[:4].style.format({
+                'Tahmin Endeks': '{:,.0f}',
+                'Aylık %': '{:+.2f}%',
+                'Kümülatif %': '{:+.2f}%'
+            }),
+            use_container_width=True,
+            hide_index=True
         )
-        display_df = display_df[['Tarih', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 
-                                'Son Veriye Göre Kümülatif Enflasyon (%)', 
-                                'En Düşük Tahmin (%95 Güven)', 'En Yüksek Tahmin (%95 Güven)']]
+    
+    with col2:
+        st.dataframe(
+            compact_df.iloc[4:8].style.format({
+                'Tahmin Endeks': '{:,.0f}',
+                'Aylık %': '{:+.2f}%',
+                'Kümülatif %': '{:+.2f}%'
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    with col3:
+        st.dataframe(
+            compact_df.iloc[8:12].style.format({
+                'Tahmin Endeks': '{:,.0f}',
+                'Aylık %': '{:+.2f}%',
+                'Kümülatif %': '{:+.2f}%'
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    # Güven aralıkları için ek detay (opsiyonel)
+    with st.expander("🔍 Güven Aralıkları ile Detaylı Görünüm"):
+        full_display_df = display_df[['Ay', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 
+                                      'Son Veriye Göre Kümülatif Enflasyon (%)',
+                                      'En Düşük Tahmin (%95 Güven)', 'En Yüksek Tahmin (%95 Güven)']].copy()
         
         st.dataframe(
-            display_df.style.format({
+            full_display_df.style.format({
                 'Tahmin Edilen Endeks': '{:,.2f}',
                 'Aylık Değişim (%)': '{:+.2f}%',
                 'Son Veriye Göre Kümülatif Enflasyon (%)': '{:+.2f}%',
                 'En Düşük Tahmin (%95 Güven)': '{:,.2f}',
-                'En Yüksek Tahmin (%95 Güven)': '{:,.2f}',
+                'En Yüksek Tahmin (%95 Güven)': '{:,.2f}'
             }),
-            use_container_width=True, 
+            use_container_width=True,
             hide_index=True,
             height=450
         )
