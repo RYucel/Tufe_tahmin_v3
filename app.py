@@ -46,7 +46,7 @@ def load_data_from_github(url):
         st.error(f"Veri yüklenirken bir hata oluştu: {e}")
         return None
 
-# --- GÜNCELLENMİŞ FONKSİYON: Modelin Geçmiş Performansını Son 3 Ay İçin Hesapla ---
+# --- Modelin Geçmiş Performansını Son 3 Ay İçin Hesapla ---
 @st.cache_data(ttl="1h")
 def calculate_performance_metrics(data):
     """
