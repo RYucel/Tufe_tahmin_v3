@@ -22,7 +22,7 @@ Tahminler, istatistiksel bir model olan **AutoARIMA** kullanılarak otomatik ola
 
 # --- VERİ YÜKLEME ---
 # ÖNEMLİ: Bu URL'yi kendi GitHub'daki AllDataSets.csv dosyanızın "Raw" URL'si ile değiştirin!
-GITHUB_CSV_URL = "https://raw.githubusercontent.com/KULLANICI_ADINIZ/REPO_ADINIZ/main/AllDataSets.csv"
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/RYucel/Tufe_tahmin_v3/refs/heads/main/AllDataSets2.csv"
 
 @st.cache_data(ttl="1h") # Veriyi 1 saatliğine önbellekte tut, sürekli GitHub'ı yorma
 def load_data_from_github(url):
