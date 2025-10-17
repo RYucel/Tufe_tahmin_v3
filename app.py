@@ -329,7 +329,7 @@ if data is not None and not data.empty:
                 'Son Veriye Göre Kümülatif Enflasyon (%)': '{:+.2f}%',
                 'En Düşük Tahmin (%95 Güven)': '{:,.2f}',
                 'En Yüksek Tahmin (%95 Güven)': '{:,.2f}',
-            }).background_gradient(subset=['Aylık Değişim (%)'], cmap='RdYlGn_r'),
+            }),
             use_container_width=True, 
             hide_index=True,
             height=450
