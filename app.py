@@ -5,6 +5,15 @@ import pandas as pd
 from statsforecast import StatsForecast
 from statsforecast.models import AutoARIMA
 import plotly.graph_objects as go
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
+import numpy as np
+import locale
+
+# --- Türkçe tarih formatı için locale ayarı ---
+try:
+    locale.setlocale(locale.LC_TIME, 'tr_TR.UTF-8')
+except locale.Error:
+    st.warning("Türkçe tarih formatı için sisteminizde 'tr_TR.UTF-8' locale paketi bulunamadı. Tarihler İngilizce gösterilebilir.")
 
 # --- Sayfa Konfigürasyonu (Başlık, İkon vb.) ---
 st.set_page_config(
@@ -21,120 +30,141 @@ Tahminler, istatistiksel bir model olan **AutoARIMA** kullanılarak otomatik ola
 """)
 
 # --- VERİ YÜKLEME ---
-# ÖNEMLİ: Bu URL'yi kendi GitHub'daki AllDataSets.csv dosyanızın "Raw" URL'si ile değiştirin!
-GITHUB_CSV_URL = "https://raw.githubusercontent.com/RYucel/Tufe_tahmin_v3/refs/heads/main/AllDataSets2.csv"
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/RYucel/Tufe_tahmin_v3/main/AllDataSets2.csv"
 
-@st.cache_data(ttl="1h") # Veriyi 1 saatliğine önbellekte tut, sürekli GitHub'ı yorma
+@st.cache_data(ttl="1h") # Veriyi 1 saatliğine önbellekte tut
 def load_data_from_github(url):
-    """
-    Veriyi GitHub'dan okur, temizler ve tahmin için hazırlar.
-    """
     try:
         df = pd.read_csv(url)
-        # Sütun adlarındaki olası boşlukları temizle
         df.columns = df.columns.str.strip()
-        # Tarih sütununu işle
         df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
-        # Sadece gerekli sütunları al ve eksik verileri temizle
         df_cpi = df[['Date', 'KKTCGenel']].copy().dropna()
         df_cpi = df_cpi.rename(columns={'Date': 'ds', 'KKTCGenel': 'y'})
-        # Model için gerekli olan 'unique_id' sütununu ekle
         df_cpi['unique_id'] = 'KKTCGenel'
         return df_cpi
     except Exception as e:
         st.error(f"Veri yüklenirken bir hata oluştu: {e}")
-        st.error("Lütfen GitHub URL'sinin doğru olduğundan ve dosyanın public (herkese açık) olduğundan emin olun.")
         return None
 
-# Veriyi yükle ve yüklenirken kullanıcıya bilgi ver
+# --- GÜNCELLENMİŞ FONKSİYON: Modelin Geçmiş Performansını Son 3 Ay İçin Hesapla ---
+@st.cache_data(ttl="1h")
+def calculate_performance_metrics(data):
+    """
+    Verinin son 3 ayını test seti olarak kullanarak modelin kısa dönem performansını ölçer.
+    """
+    if len(data) < 24: # Yeterli veri yoksa hesaplama yapma
+        return None
+
+    # Veriyi eğitim ve test olarak ayır (SON 3 AY TEST İÇİN)
+    train_df = data.iloc[:-3]
+    test_df = data.iloc[-3:]
+
+    # Modeli eğitim verisiyle eğit
+    model = StatsForecast(models=[AutoARIMA(season_length=12)], freq='MS')
+    model.fit(train_df)
+
+    # Test periyodu için tahmin yap (3 AY)
+    forecast = model.predict(h=3)
+
+    # Metrikleri hesapla
+    y_true = test_df['y'].values
+    y_pred = forecast['AutoARIMA'].values
+
+    mape = mean_absolute_percentage_error(y_true, y_pred) * 100
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+
+    return {'MAPE': mape, 'MAE': mae, 'RMSE': rmse}
+
+# --- Ana Uygulama Akışı ---
 with st.spinner('Güncel veriler GitHub üzerinden yükleniyor...'):
     data = load_data_from_github(GITHUB_CSV_URL)
 
 if data is not None and not data.empty:
-    # --- SON BİLİNEN VERİYİ GÖSTER ---
-    last_known_date = data['ds'].max().strftime('%B %Y')
+    last_known_date = data['ds'].max()
     last_known_value = data.sort_values('ds')['y'].iloc[-1]
 
     st.subheader("Mevcut Durum")
-    st.metric(label=f"Son Bilinen Endeks Değeri ({last_known_date})", value=f"{last_known_value:,.2f}")
+    st.metric(label=f"Son Bilinen Endeks Değeri ({last_known_date.strftime('%B %Y')})", value=f"{last_known_value:,.2f}")
+
+    # --- MODEL PERFORMANSI (SON 3 AY) ---
+    st.subheader("Modelin Kısa Dönem Geçmiş Performansı (Son 3 Ay)")
+    with st.spinner('Modelin yakın geçmişteki performansı test ediliyor...'):
+        metrics = calculate_performance_metrics(data)
+
+    if metrics:
+        col1, col2, col3 = st.columns(3)
+        # Metrik açıklamalarını "son 3 ay" olarak güncelle
+        col1.metric("Ortalama % Hata (MAPE)", f"{metrics['MAPE']:.2f}%", help="Modelin son 3 aydaki tahminlerinin ortalama olarak gerçek değerlerden yüzde kaç saptığını gösterir. Düşük olması daha iyidir.")
+        col2.metric("Ortalama Hata (MAE)", f"{metrics['MAE']:.2f}", help="Modelin tahminlerinin ortalama olarak kaç endeks puanı saptığını gösterir.")
+        col3.metric("Karesel Hata (RMSE)", f"{metrics['RMSE']:.2f}", help="Büyük hataları daha fazla cezalandıran bir hata metriğidir. MAE'ye yakın olması tutarlı tahminler anlamına gelir.")
 
     # --- TAHMİN MODELİNİ ÇALIŞTIR ---
     st.subheader("Gelecek 12 Aylık Tahmin Sonuçları")
-    with st.spinner('AutoARIMA modeli ile 12 aylık tahmin hesaplanıyor...'):
-        # Modeli tanımla
-        model = StatsForecast(
-            models=[AutoARIMA(season_length=12)],
-            freq='MS' # Aylık Frekans
-        )
-        # Modeli tüm veriyle eğit
-        model.fit(data)
-        # 12 ay ileriye tahmin yap
-        forecast = model.predict(h=12)
+    with st.spinner('AutoARIMA modeli ile 12 aylık tahmin ve güven aralıkları hesaplanıyor...'):
+        # ANA TAHMİN İÇİN MODEL TÜM VERİYLE EĞİTİLİR
+        model_full_data = StatsForecast(models=[AutoARIMA(season_length=12)], freq='MS')
+        model_full_data.fit(data)
+        # ANA TAHMİN 12 AY OLARAK KALIR
+        forecast = model_full_data.predict(h=12, level=[95])
 
     # --- TAHMİN SONUÇLARINI İŞLE ---
-    # Tahmin edilen değerleri ve tarihleri al
     predicted_values = forecast['AutoARIMA'].values
-    future_dates = pd.date_range(start=data['ds'].max() + pd.DateOffset(months=1), periods=12, freq='MS')
+    lower_bound = forecast['AutoARIMA-lo-95'].values
+    upper_bound = forecast['AutoARIMA-hi-95'].values
 
-    # Sonuçları bir DataFrame'de topla
+    future_dates = pd.date_range(start=last_known_date, periods=13, freq='MS')[1:]
     results_df = pd.DataFrame({
-        'Tarih': future_dates,
-        'Tahmin Edilen Endeks': predicted_values
+        'Tarih_ts': future_dates,
+        'Tahmin Edilen Endeks': predicted_values,
+        'En Düşük Tahmin (%95 Güven)': lower_bound,
+        'En Yüksek Tahmin (%95 Güven)': upper_bound
     })
 
-    # Aylık ve Kümülatif Enflasyon Hesaplamaları
-    # İlk ayın değişimini hesaplamak için son bilinen gerçek değeri seriye ekle
-    full_series = pd.concat([
-        pd.Series([last_known_value]),
-        pd.Series(predicted_values)
-    ])
-
-    # Aylık Değişim (%)
+    full_series = pd.concat([pd.Series([last_known_value]), pd.Series(predicted_values)])
     monthly_change = (full_series.pct_change() * 100).iloc[1:].values
     results_df['Aylık Değişim (%)'] = monthly_change
-
-    # Kümülatif Enflasyon (%)
     cumulative_inflation = ((predicted_values / last_known_value) - 1) * 100
     results_df['Son Veriye Göre Kümülatif Enflasyon (%)'] = cumulative_inflation
 
-
     # --- SONUÇLARI GÖSTER (TABLO) ---
     st.markdown("#### Tahmin Tablosu")
-    st.dataframe(results_df.style.format({
+    display_df = results_df.copy()
+    display_df['Tarih'] = display_df['Tarih_ts'].dt.strftime('%B %Y')
+    display_df = display_df[['Tarih', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 'Son Veriye Göre Kümülatif Enflasyon (%)', 'En Düşük Tahmin (%95 Güven)', 'En Yüksek Tahmin (%95 Güven)']]
+    st.dataframe(display_df.style.format({
         'Tahmin Edilen Endeks': '{:,.2f}',
         'Aylık Değişim (%)': '{:,.2f}%',
-        'Son Veriye Göre Kümülatif Enflasyon (%)': '{:,.2f}%'
-    }), use_container_width=True)
+        'Son Veriye Göre Kümülatif Enflasyon (%)': '{:,.2f}%',
+        'En Düşük Tahmin (%95 Güven)': '{:,.2f}',
+        'En Yüksek Tahmin (%95 Güven)': '{:,.2f}',
+    }), use_container_width=True, hide_index=True)
 
     # --- SONUÇLARI GÖSTER (GRAFİK) ---
     st.markdown("#### Tahmin Grafiği")
     fig = go.Figure()
 
-    # Geçmiş verileri grafiğe ekle (son 36 ay)
     fig.add_trace(go.Scatter(
-        x=data['ds'].tail(36),
-        y=data['y'].tail(36),
-        mode='lines+markers',
-        name='Geçmiş Gerçekleşen Endeks Değerleri',
-        line=dict(color='royalblue')
+        x=results_df['Tarih_ts'], y=results_df['En Düşük Tahmin (%95 Güven)'],
+        mode='lines', line=dict(width=0), showlegend=False
     ))
-
-    # Tahmin verilerini grafiğe ekle
     fig.add_trace(go.Scatter(
-        x=results_df['Tarih'],
-        y=results_df['Tahmin Edilen Endeks'],
-        mode='lines+markers',
-        name='12 Aylık Tahmin',
-        line=dict(color='crimson', dash='dot')
+        x=results_df['Tarih_ts'], y=results_df['En Yüksek Tahmin (%95 Güven)'],
+        mode='lines', line=dict(width=0), fill='tonexty',
+        fillcolor='rgba(220, 53, 69, 0.2)', name='95% Güven Aralığı', showlegend=True
     ))
-
-    # Grafiği güzelleştir
+    fig.add_trace(go.Scatter(
+        x=data['ds'].tail(36), y=data['y'].tail(36),
+        mode='lines+markers', name='Geçmiş Gerçekleşen Endeks', line=dict(color='royalblue')
+    ))
+    fig.add_trace(go.Scatter(
+        x=results_df['Tarih_ts'], y=results_df['Tahmin Edilen Endeks'],
+        mode='lines+markers', name='12 Aylık Tahmin (Orta Senaryo)', line=dict(color='crimson', dash='dot')
+    ))
     fig.update_layout(
         title_text='Geçmiş ve Tahmin Edilen TÜFE Endeksi Değerleri',
-        xaxis_title='Tarih',
-        yaxis_title='Endeks Değeri (TÜFE)',
-        legend_title_text='Veri',
-        hovermode="x unified"
+        xaxis_title='Tarih', yaxis_title='Endeks Değeri (TÜFE)',
+        legend_title_text='Veri', hovermode="x unified"
     )
     st.plotly_chart(fig, use_container_width=True)
 
