@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 from statsforecast import StatsForecast
@@ -8,24 +6,103 @@ import plotly.graph_objects as go
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 import numpy as np
 
-# --- Sayfa Konfigürasyonu (Başlık, İkon vb.) ---
+# --- Sayfa Konfigürasyonu ---
 st.set_page_config(
     page_title="KKTC Enflasyon Tahmini",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# --- UYGULAMA BAŞLIĞI VE AÇIKLAMASI ---
-st.title("📈 KKTC Tüketici Fiyat Endeksi (TÜFE) Tahmini")
+# --- Custom CSS for Professional Look ---
 st.markdown("""
-Bu uygulama, halka açık verileri kullanarak Kuzey Kıbrıs Türk Cumhuriyeti için gelecek 12 aylık enflasyon tahminini yapar.
-Tahminler, istatistiksel bir model olan **AutoARIMA** kullanılarak otomatik olarak üretilmektedir. Her yenilemede veriler güncellenir.
-""")
+<style>
+    /* Modern card design */
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: white;
+        margin-bottom: 1rem;
+    }
+    
+    .metric-card-neutral {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: white;
+        margin-bottom: 1rem;
+    }
+    
+    .metric-card-success {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: white;
+        margin-bottom: 1rem;
+    }
+    
+    .metric-value {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin: 0.5rem 0;
+    }
+    
+    .metric-label {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        font-weight: 500;
+    }
+    
+    .metric-sublabel {
+        font-size: 0.8rem;
+        opacity: 0.8;
+        margin-top: 0.3rem;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Responsive typography */
+    @media (max-width: 640px) {
+        .metric-value {
+            font-size: 1.8rem;
+        }
+        .metric-card {
+            padding: 1rem;
+        }
+    }
+    
+    /* Section headers */
+    .section-header {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin: 2rem 0 1rem 0;
+        color: #1f2937;
+    }
+    
+    /* Info badge */
+    .info-badge {
+        display: inline-block;
+        background: #f0f9ff;
+        color: #0369a1;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- VERİ YÜKLEME ---
 GITHUB_CSV_URL = "https://raw.githubusercontent.com/RYucel/Tufe_tahmin_v3/main/AllDataSets2.csv"
 
-@st.cache_data(ttl="1h") # Veriyi 1 saatliğine önbellekte tut
+@st.cache_data(ttl="1h")
 def load_data_from_github(url):
     try:
         df = pd.read_csv(url)
@@ -39,7 +116,6 @@ def load_data_from_github(url):
         st.error(f"Veri yüklenirken bir hata oluştu: {e}")
         return None
 
-# --- Modelin Geçmiş Performansını Son 3 Ay İçin Hesapla ---
 @st.cache_data(ttl="1h")
 def calculate_performance_metrics(data):
     if len(data) < 24: return None
@@ -55,49 +131,102 @@ def calculate_performance_metrics(data):
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     return {'MAPE': mape, 'MAE': mae, 'RMSE': rmse}
 
+# --- HEADER ---
+st.markdown("# 📈 KKTC Tüketici Fiyat Endeksi")
+st.markdown("**12 Aylık Enflasyon Tahmini** <span class='info-badge'>AutoARIMA Model</span>", unsafe_allow_html=True)
+
 # --- Ana Uygulama Akışı ---
-with st.spinner('Güncel veriler GitHub üzerinden yükleniyor...'):
+with st.spinner('📊 Güncel veriler yükleniyor...'):
     data = load_data_from_github(GITHUB_CSV_URL)
 
 if data is not None and not data.empty:
-    # Türkçe ay isimleri listesi (locale bağımlılığını ortadan kaldırır)
-    turkish_months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+    turkish_months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
+                      "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
     last_known_date = data['ds'].max()
     last_known_value = data.sort_values('ds')['y'].iloc[-1]
-    
-    # Son bilinen tarihi Türkçe formatla
     last_known_date_str = f"{turkish_months[last_known_date.month - 1]} {last_known_date.year}"
+    
+    # Bir önceki ayın değeri (aylık değişim için)
+    prev_value = data.sort_values('ds')['y'].iloc[-2] if len(data) > 1 else last_known_value
+    monthly_change_current = ((last_known_value - prev_value) / prev_value) * 100
+    
+    # Yıllık değişim (12 ay öncesine göre)
+    yearly_change = None
+    if len(data) >= 13:
+        value_12m_ago = data.sort_values('ds')['y'].iloc[-13]
+        yearly_change = ((last_known_value - value_12m_ago) / value_12m_ago) * 100
 
-    st.subheader("Mevcut Durum")
-    st.metric(label=f"Son Bilinen Endeks Değeri ({last_known_date_str})", value=f"{last_known_value:,.2f}")
+    # --- ÜST KART SATIRI: MEVCUT DURUM ---
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Son Bilinen Endeks</div>
+            <div class="metric-value">{last_known_value:,.2f}</div>
+            <div class="metric-sublabel">{last_known_date_str}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card-neutral">
+            <div class="metric-label">Aylık Değişim</div>
+            <div class="metric-value">{monthly_change_current:+.2f}%</div>
+            <div class="metric-sublabel">Bir önceki aya göre</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        if yearly_change is not None:
+            st.markdown(f"""
+            <div class="metric-card-success">
+                <div class="metric-label">Yıllık Enflasyon</div>
+                <div class="metric-value">{yearly_change:+.2f}%</div>
+                <div class="metric-sublabel">12 aylık değişim</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="metric-card-success">
+                <div class="metric-label">Yıllık Enflasyon</div>
+                <div class="metric-value">N/A</div>
+                <div class="metric-sublabel">Yetersiz veri</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    # --- MODEL PERFORMANSI (SON 3 AY) ---
-    st.subheader("Modelin Kısa Dönem Geçmiş Performansı (Son 3 Ay)")
-    with st.spinner('Modelin yakın geçmişteki performansı test ediliyor...'):
+    # --- MODEL PERFORMANSI ---
+    st.markdown("<div class='section-header'>🎯 Model Performansı (Son 3 Ay Test)</div>", unsafe_allow_html=True)
+    
+    with st.spinner('Model performansı hesaplanıyor...'):
         metrics = calculate_performance_metrics(data)
 
     if metrics:
         col1, col2, col3 = st.columns(3)
-        col1.metric("Ortalama % Hata (MAPE)", f"{metrics['MAPE']:.2f}%", help="Modelin son 3 aydaki tahminlerinin ortalama olarak gerçek değerlerden yüzde kaç saptığını gösterir. Düşük olması daha iyidir.")
-        col2.metric("Ortalama Hata (MAE)", f"{metrics['MAE']:.2f}", help="Modelin tahminlerinin ortalama olarak kaç endeks puanı saptığını gösterir.")
-        col3.metric("Karesel Hata (RMSE)", f"{metrics['RMSE']:.2f}", help="Büyük hataları daha fazla cezalandıran bir hata metriğidir. MAE'ye yakın olması tutarlı tahminler anlamına gelir.")
+        col1.metric("MAPE (Ort. % Hata)", f"{metrics['MAPE']:.2f}%", 
+                   help="Düşük olması daha iyi. Model tahminlerinin ortalama yüzde sapması.")
+        col2.metric("MAE (Ort. Hata)", f"{metrics['MAE']:.2f}", 
+                   help="Tahminlerin gerçek değerlerden ortalama sapması (endeks puanı).")
+        col3.metric("RMSE (Karesel Hata)", f"{metrics['RMSE']:.2f}", 
+                   help="Büyük hataları cezalandıran metrik.")
 
-    # --- TAHMİN MODELİNİ ÇALIŞTIR ---
-    st.subheader("Gelecek 12 Aylık Tahmin Sonuçları")
-    with st.spinner('AutoARIMA modeli ile 12 aylık tahmin ve güven aralıkları hesaplanıyor...'):
+    # --- TAHMİN MODELİ ---
+    st.markdown("<div class='section-header'>🔮 12 Aylık Tahmin</div>", unsafe_allow_html=True)
+    
+    with st.spinner('Tahminler hesaplanıyor...'):
         model_full_data = StatsForecast(models=[AutoARIMA(season_length=12)], freq='MS')
         model_full_data.fit(data)
         forecast = model_full_data.predict(h=12, level=[95])
 
-    # --- TAHMİN SONUÇLARINI İŞLE ---
     predicted_values = forecast['AutoARIMA'].values
     lower_bound = forecast['AutoARIMA-lo-95'].values
     upper_bound = forecast['AutoARIMA-hi-95'].values
 
-    # --- DÜZELTİLMİŞ KOD: Gelecek 12 ay için daha sağlam tarih aralığı oluşturma ---
+    # Tarih aralığı oluşturma - düzeltilmiş
     start_forecast_date = last_known_date + pd.offsets.MonthBegin(1)
     future_dates = pd.date_range(start=start_forecast_date, periods=12, freq='MS')
+
     results_df = pd.DataFrame({
         'Tarih_ts': future_dates,
         'Tahmin Edilen Endeks': predicted_values,
@@ -111,49 +240,104 @@ if data is not None and not data.empty:
     cumulative_inflation = ((predicted_values / last_known_value) - 1) * 100
     results_df['Son Veriye Göre Kümülatif Enflasyon (%)'] = cumulative_inflation
 
-    # --- SONUÇLARI GÖSTER (TABLO) ---
-    st.markdown("#### Tahmin Tablosu")
-    display_df = results_df.copy()
+    # --- ÖNE ÇIKAN TAHMİNLER (3 ve 12 ay) ---
+    col1, col2 = st.columns(2)
     
-    # --- DÜZELTİLMİŞ KOD: Manuel Türkçe tarih formatlama ---
-    display_df['Tarih'] = display_df['Tarih_ts'].apply(lambda dt: f"{turkish_months[dt.month - 1]} {dt.year}")
+    forecast_3m_value = predicted_values[2]
+    forecast_3m_change = cumulative_inflation[2]
+    forecast_12m_value = predicted_values[11]
+    forecast_12m_change = cumulative_inflation[11]
     
-    display_df = display_df[['Tarih', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 'Son Veriye Göre Kümülatif Enflasyon (%)', 'En Düşük Tahmin (%95 Güven)', 'En Yüksek Tahmin (%95 Güven)']]
-    st.dataframe(display_df.style.format({
-        'Tahmin Edilen Endeks': '{:,.2f}',
-        'Aylık Değişim (%)': '{:,.2f}%',
-        'Son Veriye Göre Kümülatif Enflasyon (%)': '{:,.2f}%',
-        'En Düşük Tahmin (%95 Güven)': '{:,.2f}',
-        'En Yüksek Tahmin (%95 Güven)': '{:,.2f}',
-    }), use_container_width=True, hide_index=True)
+    with col1:
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: white; text-align: center;">
+            <div style="font-size: 0.9rem; font-weight: 500;">3 Ay Sonra Tahmini</div>
+            <div style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">{forecast_3m_value:,.2f}</div>
+            <div style="font-size: 0.85rem; opacity: 0.9;">Kümülatif Enflasyon: {forecast_3m_change:+.2f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: #1f2937; text-align: center;">
+            <div style="font-size: 0.9rem; font-weight: 500;">12 Ay Sonra Tahmini</div>
+            <div style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">{forecast_12m_value:,.2f}</div>
+            <div style="font-size: 0.85rem; opacity: 0.8;">Kümülatif Enflasyon: {forecast_12m_change:+.2f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # --- SONUÇLARI GÖSTER (GRAFİK) ---
-    st.markdown("#### Tahmin Grafiği")
+    st.markdown("---")
+
+    # --- GRAFİK ---
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
         x=results_df['Tarih_ts'], y=results_df['En Düşük Tahmin (%95 Güven)'],
-        mode='lines', line=dict(width=0), showlegend=False
+        mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip'
     ))
     fig.add_trace(go.Scatter(
         x=results_df['Tarih_ts'], y=results_df['En Yüksek Tahmin (%95 Güven)'],
         mode='lines', line=dict(width=0), fill='tonexty',
-        fillcolor='rgba(220, 53, 69, 0.2)', name='95% Güven Aralığı', showlegend=True
+        fillcolor='rgba(102, 126, 234, 0.2)', name='%95 Güven Aralığı'
     ))
     fig.add_trace(go.Scatter(
         x=data['ds'].tail(36), y=data['y'].tail(36),
-        mode='lines+markers', name='Geçmiş Gerçekleşen Endeks', line=dict(color='royalblue')
+        mode='lines+markers', name='Geçmiş Veri', 
+        line=dict(color='#667eea', width=3),
+        marker=dict(size=6)
     ))
     fig.add_trace(go.Scatter(
         x=results_df['Tarih_ts'], y=results_df['Tahmin Edilen Endeks'],
-        mode='lines+markers', name='12 Aylık Tahmin (Orta Senaryo)', line=dict(color='crimson', dash='dot')
+        mode='lines+markers', name='Tahmin', 
+        line=dict(color='#f5576c', width=3, dash='dot'),
+        marker=dict(size=8, symbol='diamond')
     ))
+    
     fig.update_layout(
-        title_text='Geçmiş ve Tahmin Edilen TÜFE Endeksi Değerleri',
-        xaxis_title='Tarih', yaxis_title='Endeks Değeri (TÜFE)',
-        legend_title_text='Veri', hovermode="x unified"
+        title={'text': 'TÜFE Endeksi: Geçmiş ve Tahmin', 'x': 0.5, 'xanchor': 'center'},
+        xaxis_title='Tarih', 
+        yaxis_title='Endeks Değeri',
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=20, r=20, t=60, b=20),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(family="Arial, sans-serif", size=12)
     )
+    
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
+    
     st.plotly_chart(fig, use_container_width=True)
 
+    # --- DETAYLI TABLO ---
+    with st.expander("📋 Detaylı Tahmin Tablosu", expanded=False):
+        display_df = results_df.copy()
+        display_df['Tarih'] = display_df['Tarih_ts'].apply(
+            lambda dt: f"{turkish_months[dt.month - 1]} {dt.year}"
+        )
+        display_df = display_df[['Tarih', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 
+                                'Son Veriye Göre Kümülatif Enflasyon (%)', 
+                                'En Düşük Tahmin (%95 Güven)', 'En Yüksek Tahmin (%95 Güven)']]
+        
+        st.dataframe(
+            display_df.style.format({
+                'Tahmin Edilen Endeks': '{:,.2f}',
+                'Aylık Değişim (%)': '{:+.2f}%',
+                'Son Veriye Göre Kümülatif Enflasyon (%)': '{:+.2f}%',
+                'En Düşük Tahmin (%95 Güven)': '{:,.2f}',
+                'En Yüksek Tahmin (%95 Güven)': '{:,.2f}',
+            }).background_gradient(subset=['Aylık Değişim (%)'], cmap='RdYlGn_r'),
+            use_container_width=True, 
+            hide_index=True,
+            height=450
+        )
+
+    # --- FOOTER ---
+    st.markdown("---")
+    st.caption("📊 Veri Kaynağı: GitHub | Model: AutoARIMA | Son Güncelleme: Her saat başı")
+
 else:
-    st.warning("Veri yüklenemediği için uygulama başlatılamıyor.")
+    st.error("⚠️ Veri yüklenemedi. Lütfen daha sonra tekrar deneyin.")
