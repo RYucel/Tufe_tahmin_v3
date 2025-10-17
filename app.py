@@ -96,9 +96,8 @@ if data is not None and not data.empty:
     upper_bound = forecast['AutoARIMA-hi-95'].values
 
     # --- DÜZELTİLMİŞ KOD: Gelecek 12 ay için daha sağlam tarih aralığı oluşturma ---
-    start_forecast_date = last_known_date + pd.DateOffset(months=1)
+    start_forecast_date = last_known_date + pd.offsets.MonthBegin(1)
     future_dates = pd.date_range(start=start_forecast_date, periods=12, freq='MS')
-
     results_df = pd.DataFrame({
         'Tarih_ts': future_dates,
         'Tahmin Edilen Endeks': predicted_values,
