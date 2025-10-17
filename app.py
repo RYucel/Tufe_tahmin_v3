@@ -7,13 +7,6 @@ from statsforecast.models import AutoARIMA
 import plotly.graph_objects as go
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 import numpy as np
-import locale
-
-# --- Türkçe tarih formatı için locale ayarı ---
-try:
-    locale.setlocale(locale.LC_TIME, 'tr_TR.UTF-8')
-except locale.Error:
-    st.warning("Türkçe tarih formatı için sisteminizde 'tr_TR.UTF-8' locale paketi bulunamadı. Tarihler İngilizce gösterilebilir.")
 
 # --- Sayfa Konfigürasyonu (Başlık, İkon vb.) ---
 st.set_page_config(
@@ -49,31 +42,17 @@ def load_data_from_github(url):
 # --- Modelin Geçmiş Performansını Son 3 Ay İçin Hesapla ---
 @st.cache_data(ttl="1h")
 def calculate_performance_metrics(data):
-    """
-    Verinin son 3 ayını test seti olarak kullanarak modelin kısa dönem performansını ölçer.
-    """
-    if len(data) < 24: # Yeterli veri yoksa hesaplama yapma
-        return None
-
-    # Veriyi eğitim ve test olarak ayır (SON 3 AY TEST İÇİN)
+    if len(data) < 24: return None
     train_df = data.iloc[:-3]
     test_df = data.iloc[-3:]
-
-    # Modeli eğitim verisiyle eğit
     model = StatsForecast(models=[AutoARIMA(season_length=12)], freq='MS')
     model.fit(train_df)
-
-    # Test periyodu için tahmin yap (3 AY)
     forecast = model.predict(h=3)
-
-    # Metrikleri hesapla
     y_true = test_df['y'].values
     y_pred = forecast['AutoARIMA'].values
-
     mape = mean_absolute_percentage_error(y_true, y_pred) * 100
     mae = mean_absolute_error(y_true, y_pred)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-
     return {'MAPE': mape, 'MAE': mae, 'RMSE': rmse}
 
 # --- Ana Uygulama Akışı ---
@@ -81,11 +60,17 @@ with st.spinner('Güncel veriler GitHub üzerinden yükleniyor...'):
     data = load_data_from_github(GITHUB_CSV_URL)
 
 if data is not None and not data.empty:
+    # Türkçe ay isimleri listesi (locale bağımlılığını ortadan kaldırır)
+    turkish_months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+
     last_known_date = data['ds'].max()
     last_known_value = data.sort_values('ds')['y'].iloc[-1]
+    
+    # Son bilinen tarihi Türkçe formatla
+    last_known_date_str = f"{turkish_months[last_known_date.month - 1]} {last_known_date.year}"
 
     st.subheader("Mevcut Durum")
-    st.metric(label=f"Son Bilinen Endeks Değeri ({last_known_date.strftime('%B %Y')})", value=f"{last_known_value:,.2f}")
+    st.metric(label=f"Son Bilinen Endeks Değeri ({last_known_date_str})", value=f"{last_known_value:,.2f}")
 
     # --- MODEL PERFORMANSI (SON 3 AY) ---
     st.subheader("Modelin Kısa Dönem Geçmiş Performansı (Son 3 Ay)")
@@ -94,7 +79,6 @@ if data is not None and not data.empty:
 
     if metrics:
         col1, col2, col3 = st.columns(3)
-        # Metrik açıklamalarını "son 3 ay" olarak güncelle
         col1.metric("Ortalama % Hata (MAPE)", f"{metrics['MAPE']:.2f}%", help="Modelin son 3 aydaki tahminlerinin ortalama olarak gerçek değerlerden yüzde kaç saptığını gösterir. Düşük olması daha iyidir.")
         col2.metric("Ortalama Hata (MAE)", f"{metrics['MAE']:.2f}", help="Modelin tahminlerinin ortalama olarak kaç endeks puanı saptığını gösterir.")
         col3.metric("Karesel Hata (RMSE)", f"{metrics['RMSE']:.2f}", help="Büyük hataları daha fazla cezalandıran bir hata metriğidir. MAE'ye yakın olması tutarlı tahminler anlamına gelir.")
@@ -102,10 +86,8 @@ if data is not None and not data.empty:
     # --- TAHMİN MODELİNİ ÇALIŞTIR ---
     st.subheader("Gelecek 12 Aylık Tahmin Sonuçları")
     with st.spinner('AutoARIMA modeli ile 12 aylık tahmin ve güven aralıkları hesaplanıyor...'):
-        # ANA TAHMİN İÇİN MODEL TÜM VERİYLE EĞİTİLİR
         model_full_data = StatsForecast(models=[AutoARIMA(season_length=12)], freq='MS')
         model_full_data.fit(data)
-        # ANA TAHMİN 12 AY OLARAK KALIR
         forecast = model_full_data.predict(h=12, level=[95])
 
     # --- TAHMİN SONUÇLARINI İŞLE ---
@@ -113,7 +95,10 @@ if data is not None and not data.empty:
     lower_bound = forecast['AutoARIMA-lo-95'].values
     upper_bound = forecast['AutoARIMA-hi-95'].values
 
-    future_dates = pd.date_range(start=last_known_date, periods=13, freq='MS')[1:]
+    # --- DÜZELTİLMİŞ KOD: Gelecek 12 ay için daha sağlam tarih aralığı oluşturma ---
+    start_forecast_date = last_known_date + pd.DateOffset(months=1)
+    future_dates = pd.date_range(start=start_forecast_date, periods=12, freq='MS')
+
     results_df = pd.DataFrame({
         'Tarih_ts': future_dates,
         'Tahmin Edilen Endeks': predicted_values,
@@ -130,7 +115,10 @@ if data is not None and not data.empty:
     # --- SONUÇLARI GÖSTER (TABLO) ---
     st.markdown("#### Tahmin Tablosu")
     display_df = results_df.copy()
-    display_df['Tarih'] = display_df['Tarih_ts'].dt.strftime('%B %Y')
+    
+    # --- DÜZELTİLMİŞ KOD: Manuel Türkçe tarih formatlama ---
+    display_df['Tarih'] = display_df['Tarih_ts'].apply(lambda dt: f"{turkish_months[dt.month - 1]} {dt.year}")
+    
     display_df = display_df[['Tarih', 'Tahmin Edilen Endeks', 'Aylık Değişim (%)', 'Son Veriye Göre Kümülatif Enflasyon (%)', 'En Düşük Tahmin (%95 Güven)', 'En Yüksek Tahmin (%95 Güven)']]
     st.dataframe(display_df.style.format({
         'Tahmin Edilen Endeks': '{:,.2f}',
